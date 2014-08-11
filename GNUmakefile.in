@@ -1,0 +1,146 @@
+# $Id: GNUmakefile.in,v 1.5 2013/01/22 14:54:33 tee Exp $
+#
+# Author (of build) Richard Offer <offer@sgi.com>
+
+top_srcdir = @top_srcdir@
+srcdir = @srcdir@
+
+AS = @AS@
+CC = @CC@
+LD = ld
+AUTOMAKE=@AUTOMAKE@
+PACKAGE = @PACKAGE@
+VERSION = @VERSION@
+INSTALL = @INSTALL@
+
+MKDIR_P = @MKDIR_P@
+
+AUTOMAKE_OPTIONS = foreign
+
+mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
+
+NULL = 
+
+
+OBJECTS = \
+	xvma.o \
+	$(NULL)
+
+SOURCES=xvma.c
+
+INCLUDES = -I../include
+
+CONFIG_DEFS=
+DEFS = @DEFS@ -D__KERNEL__ -DMODULE $(CONFIG_DEFS)
+CPPFLAGS = @CPPFLAGS@
+
+CFLAGS = @CFLAGS@ -Wall -Werror
+CFLAGS = ${CFLAGS} -Wall
+COMPILE = $(CC) $(DEFS) $(CPPFLAGS) $(CFLAGS)
+
+DIST_COMMON =  Makefile.in
+
+DISTFILES = $(DIST_COMMON) $(SOURCES) $(HEADERS) $(TEXINFOS) $(EXTRA_DIST)
+
+KERNELS=@KERNELS@
+KERN_HDRS=@KERN_HDRS@
+MODULES=$(KERNELS:=.o)
+
+KBUILD_DIRS=@KBUILD_DIRS@
+
+all:: $(MODULES) kbuild
+
+# To avoid a funny module name, we want SUBDIRS to point right to the 
+# directory building the module.  We don't want to provide a subdirectory
+# in SUBDIRS or the module name gets long and weird.
+# we copy the Makefile and the .c file in to the build directories.
+kbuild:
+	for i in $(KBUILD_DIRS) ;\
+	do \
+		$(RM) $(OBJECTS) ; \
+		basedir=`echo $$i | awk -F '/' '{print $$4 }' `;\
+		mkdir $$basedir ;\
+		cp Makefile $$basedir ;\
+		cp $(SOURCES) $$basedir ;\
+		cp ../include/xvma.h $$basedir ;\
+		make -C $$i SUBDIRS=`pwd`/$$basedir modules || exit 1 ;\
+	done
+
+.s.o:
+	$(COMPILE) -c $<
+
+.S.o:
+	$(COMPILE) -c $<
+
+.SILENT:
+$(OBJECTS) : %.o: %.c
+	name="$(KERNELS)"; \
+	hdrs="$(KERN_HDRS)"; \
+	while [ $${#name} -gt 1 ] ; do \
+	  i="`echo $$name | cut -d ' ' -f 1`" ; \
+	  j="`echo $$hdrs | cut -d ' ' -f 1`" ; \
+	  kernel_cflags="`[ -x $$j/../kernel-cflags ] && $$j/../kernel-cflags ]`" ;\
+	  if test ! -d $$i ; then mkdir $$i ; fi ; \
+	  echo "$(COMPILE) $$kernel_cflags -I$$j $(INCLUDES) -c $< -o $$i/$@" ; \
+	  $(COMPILE) $$kernel_cflags -I$$j $(INCLUDES) -I$$i -c $< -o $$i/$@ ; \
+	  name="`echo $$name ' ' | cut -f2-99 -d ' ' `" ; \
+	  hdrs="`echo $$hdrs ' ' | cut -f2-99 -d ' ' `" ; \
+	done
+
+clean::
+	rm -rf *.o core *.core $(MODULES) $(KERNELS)
+
+distclean:: clean
+	rm -rf *.d
+
+$(MODULES): $(OBJECTS)
+	for i in $@;\
+	do \
+		( cd `basename $$i .o` ; \
+		echo "$(LD) -r $(OBJECTS) -o ../$$i" ; \
+		$(LD) -r $(OBJECTS) -o ../$$i ; \
+		) ; \
+	done
+
+distdir = $(top_builddir)/$(PACKAGE)-$(VERSION)/$(subdir)
+
+distdir: $(DISTFILES)
+	here=`cd $(top_builddir) && pwd`; \
+	top_distdir=`cd $(top_distdir) && pwd`; \
+	distdir=`cd $(distdir) && pwd`; \
+	cd $(top_srcdir) \
+	  && $(AUTOMAKE) --include-deps --build-dir=$$here --srcdir-name=$(top_srcdir) --output-dir=$$top_distdir --foreign lib/Makefile
+	@for file in $(DISTFILES); do \
+	  d=$(srcdir); \
+	  if test -d $$d/$$file; then \
+	    cp -pr $$d/$$file $(distdir)/$$file; \
+	  else \
+	    test -f $(distdir)/$$file \
+	    || ln $$d/$$file $(distdir)/$$file 2> /dev/null \
+	    || cp -p $$d/$$file $(distdir)/$$file || :; \
+	  fi; \
+	done
+
+install::
+	echo "$(MKDIR_P) $(DESTDIR)/usr/include/linux/uv/xvma"
+	$(MKDIR_P) $(DESTDIR)/usr/include/linux/uv/xvma
+	echo "$(INSTALL) ../include/xvma.h $(DESTDIR)/usr/include/linux/uv/xvma.h" ; 	\
+	$(INSTALL) ../include/xvma.h $(DESTDIR)/usr/include/linux/uv/xvma.h ; 	\
+	for i in $(MODULES) ;\
+	do \
+		echo "$(mkinstalldirs) $(DESTDIR)/lib/modules/`basename $$i .o`/sgi/drivers/misc/" ; \
+		$(mkinstalldirs) $(DESTDIR)/lib/modules/`basename $$i .o`/sgi/drivers/misc/ ; \
+		echo "$(INSTALL) $$i $(DESTDIR)/lib/modules/`basename $$i .o`/sgi/drivers/misc/xvma.o" ; \
+		$(INSTALL) $$i $(DESTDIR)/lib/modules/`basename $$i .o`/sgi/drivers/misc/xvma.o ; \
+	done ; \
+	for i in $(KBUILD_DIRS) ;\
+	do \
+		basedir=`echo $$i | awk -F '/' '{print $$4 }' `;\
+		extraver=`echo $$basedir | sed s/[^-]*//`;\
+		make -C $$i SUBDIRS=`pwd`/$$basedir INSTALL_MOD_PATH=$(DESTDIR)\
+			INSTALL_MOD_DIR=@INSTALL_MOD_DIR@ modules_install || exit 1 ;\
+		mkdir -p $(DESTDIR)/usr/share/xvma/$$basedir;\
+		install -m 644 -t $(DESTDIR)/usr/share/xvma/$$basedir \
+			$$basedir/Module*.symvers; \
+	done; \
+	find $(DESTDIR)/lib/modules/ -name "modules.*" -exec rm {} \;
