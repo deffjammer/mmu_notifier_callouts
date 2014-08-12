@@ -2,4 +2,4 @@
 # GNUmakefile.in.
 
 EXTRA_CFLAGS := -Werror -Wall
-obj-m := xvma.o
+obj-m := df-mmu.o
