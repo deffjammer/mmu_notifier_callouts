@@ -20,11 +20,13 @@
 /*
  * UV Platform df_mmu interface
  *
- * This inteface provides df_mmu handling to xpmem, superpages driver
+ * This inteface provides df_mmu handling to df_mmu, superpages driver
  * and the GRU driver.
  */
 
+#include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -36,12 +38,51 @@
 #include <linux/string.h>
 #include <linux/version.h>
 
+#define DF_MMU_MODULE_NAME "df_mmu"
+
 struct df_group {
 	pid_t  mmu_registered_pid;		/* tg's tgid */
 	struct mmu_notifier mmu_notifier;
 	struct mm_struct *mm_for_mmu_notifier_unreg_only;
 };
 
+static int
+df_mmu_file_open(struct inode *inode, struct file *file)
+{ 
+	return 0;
+}
+#if 0
+static int
+df_mmu_file_write(struct inode *inode, struct file *file)
+{ 
+	return 0;
+}
+
+static int
+df_mmu_file_read(struct inode *inode, struct file *file)
+{ 
+	return 0;
+}
+#endif 
+static int
+df_mmu_file_release(struct inode *inode, struct file *file)
+{ 
+	return 0;
+}
+
+struct file_operations df_mmu_fops = {
+//       .read = df_mmu_file_read,
+//       .write = df_mmu_file_write,
+       .open = df_mmu_file_open,
+       .release = df_mmu_file_release
+};
+#if 0
+static struct miscdevice df_mmu_dev_handle = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = DF_MMU_MODULE_NAME,
+	.fops = &df_mmu_fops
+};
+#endif 
 static void
 df_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 			struct mm_struct *mm,
@@ -90,8 +131,15 @@ struct mmu_notifier_ops df_mmu_notifier_ops = {
 static int __init
 df_mmu_init(void)
 {
+	static int major;
 
 	printk("df-mmu init\n");
+	major = register_chrdev(0, "df_mmu", &df_mmu_fops);
+
+   	if (major < 0) {
+     		printk ("Registering the character device failed with %d\n", major);
+     		return major;
+   	}
 	return 0
 ;
 }
