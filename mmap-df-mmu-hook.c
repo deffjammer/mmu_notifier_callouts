@@ -7,6 +7,29 @@
 #include <string.h>
 #include <errno.h>
 
+#define DF_MMU_DEV_PATH "/dev/df_mmu"
+
+static int df_mmu_fd = -1;
+
+static void
+close_df_mmu(void)
+{
+	if (df_mmu_fd != -1) {
+		(void) close(df_mmu_fd);	/* someone else may have closed it */
+		df_mmu_fd = -1;
+	}
+}
+
+static int
+open_df_mmu(void)
+{
+	int ret = 0;
+
+	if ((df_mmu_fd = open(DF_MMU_DEV_PATH, O_RDWR)) == -1)
+		return -1;
+
+        return ret;
+}
 void usage()
 {
 	fprintf(stderr, "Usage: mmap [-u -s delay -t -T] <filename>\n");
@@ -60,7 +83,7 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	// fd = open(/dev/df_mmu)
+	open_df_mmu();
 	
 	if (fstat(fd, &fs) == -1) {
 		fprintf(stderr, "Failed to stat %s: %s\n", *argv, strerror(errno));
@@ -103,5 +126,6 @@ int main(int argc, char *argv[])
 	if (delay)
 		sleep(delay);
 
+	close_df_mmu();
 	return 0;
 }
