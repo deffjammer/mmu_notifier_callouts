@@ -46,62 +46,78 @@ static int df_mmu_flush(struct file *, fl_owner_t);
 struct mmu_notifier_ops df_mmu_notifier_ops;
 
 struct df_mmu_group {
-	pid_t  mmu_registered_pid;		/* df_g's df_gid */
+	pid_t  pid;		/* df_g's df_gid */
 	struct mmu_notifier mmu_notifier;
 	struct mm_struct *mm_for_mmu_notifier_unreg_only;
+	atomic_t n_file_opens;	
 };
 
-struct kmem_cache *df_mmu_df_g_cache;
+
+#if 1
+
+static struct df_mmu_group *
+df_g_alloc(void)
+{
+	return kzalloc(sizeof(struct df_mmu_group), GFP_KERNEL);
+}
+
+static void
+df_g_free(struct df_mmu_group *df_g)
+{
+	kfree(df_g);
+}
 
 static inline int
-df_mmu_cache_create_df_g(void)
+df_g_cache_create(void)
 {
-	df_mmu_df_g_cache = kmem_cache_create("df_mmu_group",
+	return 0;
+}
+static inline void
+df_g_cache_destroy(void)
+{
+	return;
+}
+
+#else 
+
+struct kmem_cache *df_g_cache;
+
+static inline int
+df_g_cache_create(void)
+{
+	df_g_cache = kmem_cache_create("df_g_cache",
 		sizeof(struct df_mmu_group), 0, SLAB_HWCACHE_ALIGN, NULL);
 
-	if (df_mmu_df_g_cache == NULL)
+	if (df_g_cache == NULL)
 		return -ENOMEM;
 
 	return 0;
 }
 
-static inline void
-df_mmu_cache_destroy_df_g(void)
+static void
+df_g_cache_destroy(void)
 {
-	kmem_cache_destroy(df_mmu_df_g_cache);
+	kmem_cache_destroy(df_g_cache);
 }
 
-static inline struct df_mmu_group *
-df_mmu_g_alloc(void)
+static struct df_mmu_group *
+df_g_alloc(void)
 {
 	struct df_mmu_group *df_g;
 
-	df_g = kmem_cache_alloc(df_mmu_df_g_cache, GFP_KERNEL);
+	df_g = kmem_cache_alloc(df_g_cache, GFP_KERNEL);
 	if (df_g != NULL)
 		memset(df_g, 0, sizeof(struct df_mmu_group));
 
 	return df_g;
 }
 
-static inline void
-df_mmu_g_free(struct df_mmu_group *df_g)
+static void
+df_g_free(struct df_mmu_group *df_g)
 {
-	kmem_cache_free(df_mmu_df_g_cache, df_g);
+	kmem_cache_free(df_g_cache, df_g);
 }
-
-static inline int
-df_mmu_cache_create(void)
-{
-	int err;
-
-	err = df_mmu_cache_create_df_g();
-	if (err)
-		goto err_1;
-
-	df_mmu_cache_destroy_df_g();
-err_1:
-	return err;
-}
+#endif
 
 struct file_operations df_mmu_fops = {
         .open = 	  df_mmu_open,
@@ -110,25 +126,29 @@ struct file_operations df_mmu_fops = {
         .unlocked_ioctl = df_mmu_ioctl,
 };
 
-#if 1
 static struct miscdevice df_mmu_dev_handle = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = DF_MMU_MODULE_NAME,
 	.fops = &df_mmu_fops
 };
-#endif 
-
 
 static int
 df_mmu_open(struct inode *inode, struct file *file)
 { 
 	struct df_mmu_group *df_g;
 
-	df_g = df_mmu_g_alloc();
+	df_g = df_g_alloc();
 	if (df_g == NULL)
 		return -ENOMEM;
-	
+
+	df_g->pid = current->pid;	
 	df_g->mmu_notifier.ops = &df_mmu_notifier_ops;
+	atomic_inc(&df_g->n_file_opens);
+	file->private_data = df_g;
+	atomic_inc(&current->mm->mm_count);
+	df_g->mm_for_mmu_notifier_unreg_only = current->mm;
+
+        mmu_notifier_register(&df_g->mmu_notifier, current->mm);
 
 	return 0;
 }
@@ -145,10 +165,30 @@ df_mmu_flush(struct file *file, fl_owner_t owner)
 
 	if (df_g == NULL)
 		return 0;
+	
+	printk("df_mmu_flush: current %d, df_g %d, count %d\n", 
+		  current->pid, df_g->pid, atomic_read(&df_g->n_file_opens));
 
-	df_mmu_g_free(df_g);
+	atomic_dec(&df_g->n_file_opens);
+	//df_g_free(df_g);
 
 	return 0;
+}
+static void
+df_g_mmu_notifier_unregister(struct df_mmu_group *df_g)
+{
+	struct mm_struct *mm = df_g->mm_for_mmu_notifier_unreg_only;
+
+	if (!mm)
+		return;
+
+	mm = cmpxchg(&df_g->mm_for_mmu_notifier_unreg_only, mm, NULL);
+
+	if (!mm)
+		return;
+
+	mmu_notifier_unregister(&df_g->mmu_notifier, mm);
+	mmdrop(mm);
 }
 static int
 df_mmu_release(struct inode *inode, struct file *file)
@@ -158,8 +198,12 @@ df_mmu_release(struct inode *inode, struct file *file)
 	if (df_g == NULL)
 		return 0;
 
-	df_mmu_g_free(df_g);
+	printk("df_mmu_release: current %d, df_g %d, count %d\n", 
+		 current->pid, df_g->pid, atomic_read(&df_g->n_file_opens));
 
+ 	df_g_mmu_notifier_unregister(df_g);
+
+	df_g_free(df_g);
 	return 0;
 }
 
@@ -216,7 +260,7 @@ df_mmu_init(void)
 
 	printk("df-mmu init\n");
 
-	ret = df_mmu_cache_create();
+	ret = df_g_cache_create();
 	if (ret)
 		return ret;
 
@@ -240,8 +284,8 @@ static void __exit
 df_mmu_exit(void)
 {
 	printk("df-mmu exit\n");
-	df_mmu_cache_destroy_df_g();
 	misc_deregister(&df_mmu_dev_handle);
+	df_g_cache_destroy();
 }
 
 module_init(df_mmu_init);
