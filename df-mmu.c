@@ -1,6 +1,4 @@
 /*
- *  Copyright (C) 2009-2012 Silicon Graphics, Inc.  All rights reserved.
- *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
  *  the Free Software Foundation; either version 2 of the License, or
@@ -18,7 +16,7 @@
  */
 
 /*
- * UV Platform df_mmu interface
+ * df_mmu interface
  *
  * This inteface provides df_mmu handling to df_mmu, superpages driver
  * and the GRU driver.
@@ -45,6 +43,13 @@ static int df_mmu_release(struct inode *, struct file *);
 static int df_mmu_flush(struct file *, fl_owner_t);
 struct mmu_notifier_ops df_mmu_notifier_ops;
 
+int dump_start   = 1;
+int dump_end     = 0;
+int dump_page_s  = 0;
+int dump_release = 0;
+
+spinlock_t dump_lock;
+	
 struct df_mmu_group {
 	pid_t  pid;		/* df_g's df_gid */
 	struct mmu_notifier mmu_notifier;
@@ -172,7 +177,6 @@ df_mmu_flush(struct file *file, fl_owner_t owner)
 		  current->pid, df_g->pid, atomic_read(&df_g->n_file_opens));
 
 	atomic_dec(&df_g->n_file_opens);
-	//df_g_free(df_g);
 
 	return 0;
 }
@@ -217,6 +221,12 @@ df_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 {
 	printk("invalidate_range_start current %d, mm=%p, start=%#018lx, end=%#018lx\n",
 			             current->pid, mm,    start,         end);
+	
+	
+	spin_lock(&dump_lock);
+	if (dump_start) dump_stack();
+	spin_unlock(&dump_lock);
+
 	return;
 
 }
@@ -230,6 +240,11 @@ df_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 {
 	printk("invalidate_range_end   current %d, mm=%p, start=%#018lx, end=%#018lx\n",
 			             current->pid, mm,   start,         end);
+
+	spin_lock(&dump_lock);
+	if (dump_end) dump_stack();
+	spin_unlock(&dump_lock);
+
 	return;
 }
 
@@ -238,12 +253,20 @@ df_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
 			struct mm_struct *mm, unsigned long _start_address)
 {
 	printk("invalidate_page mm=%p, start_address=%#018lx\n", mm,_start_address);
+
+	spin_lock(&dump_lock);
+	if (dump_page_s) dump_stack();
+	spin_unlock(&dump_lock);
 }
 
 static void
 df_mmu_notifier_release(struct mmu_notifier *mn, struct mm_struct *mm)
 {
 	printk("release                current, %d mm=%p,\n", current->pid, mm);
+
+	spin_lock(&dump_lock);
+	if (dump_release) dump_stack();
+	spin_unlock(&dump_lock);
 }
 struct mmu_notifier_ops df_mmu_notifier_ops = {
 	.release = df_mmu_notifier_release,
@@ -268,6 +291,8 @@ df_mmu_init(void)
 	if (ret)
 		return ret;
 
+
+	spin_lock_init(&dump_lock);
 
 	/* create the df_mmu character device (/dev/df_mmu) */
 	ret = misc_register(&df_mmu_dev_handle);
@@ -295,8 +320,8 @@ df_mmu_exit(void)
 module_init(df_mmu_init);
 module_exit(df_mmu_exit);
 
-MODULE_AUTHOR("Silicon Graphics, Inc.");
-MODULE_DESCRIPTION("UV df_mmu interface");
+MODULE_AUTHOR("Derek Fults");
+MODULE_DESCRIPTION("df_mmu interface");
 MODULE_LICENSE("GPL");
 MODULE_INFO(supported, "external");
 
