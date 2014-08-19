@@ -53,7 +53,7 @@ struct df_mmu_group {
 };
 
 
-#if 1
+#if 0
 
 static struct df_mmu_group *
 df_g_alloc(void)
@@ -149,6 +149,8 @@ df_mmu_open(struct inode *inode, struct file *file)
 	df_g->mm_for_mmu_notifier_unreg_only = current->mm;
 
         mmu_notifier_register(&df_g->mmu_notifier, current->mm);
+	printk("df_mmu_open:    current %d, df_g %d, count %d\n", 
+		  current->pid, df_g->pid, atomic_read(&df_g->n_file_opens));
 
 	return 0;
 }
@@ -166,7 +168,7 @@ df_mmu_flush(struct file *file, fl_owner_t owner)
 	if (df_g == NULL)
 		return 0;
 	
-	printk("df_mmu_flush: current %d, df_g %d, count %d\n", 
+	printk("df_mmu_flush:   current %d, df_g %d, count %d\n", 
 		  current->pid, df_g->pid, atomic_read(&df_g->n_file_opens));
 
 	atomic_dec(&df_g->n_file_opens);
@@ -213,7 +215,8 @@ df_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 			struct mm_struct *mm,
 			unsigned long start, unsigned long end)
 {
-	printk("invalidate_range_start mm=%p, start=%#018lx, end=%#018lx\n", mm,start,end);
+	printk("invalidate_range_start current %d, mm=%p, start=%#018lx, end=%#018lx\n",
+			             current->pid, mm,    start,         end);
 	return;
 
 }
@@ -225,7 +228,8 @@ df_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 			struct mm_struct *mm,
 			unsigned long start, unsigned long end)
 {
-	printk("invalidate_range_end mm=%p, start=%#018lx, end=%#018lx\n", mm,start,end);
+	printk("invalidate_range_end   current %d, mm=%p, start=%#018lx, end=%#018lx\n",
+			             current->pid, mm,   start,         end);
 	return;
 }
 
@@ -239,7 +243,7 @@ df_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
 static void
 df_mmu_notifier_release(struct mmu_notifier *mn, struct mm_struct *mm)
 {
-	printk("release mm=%p \n", mm);
+	printk("release                current, %d mm=%p,\n", current->pid, mm);
 }
 struct mmu_notifier_ops df_mmu_notifier_ops = {
 	.release = df_mmu_notifier_release,
