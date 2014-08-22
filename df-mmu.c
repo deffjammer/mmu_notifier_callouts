@@ -45,8 +45,8 @@ struct mmu_notifier_ops df_mmu_notifier_ops;
 
 int dump_start   = 1;
 int dump_end     = 0;
-int dump_page_s  = 0;
-int dump_release = 0;
+int dump_page_s  = 1;
+int dump_release = 1;
 
 spinlock_t dump_lock;
 	

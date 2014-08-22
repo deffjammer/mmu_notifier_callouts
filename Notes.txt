@@ -1,0 +1,37 @@
+
+1) Kill off the mpi-test-clive to see the zap_xvma_ptes
+2) Run mmap-df-mmu with mpi-test-clive to see 
+	alloc_pages_vma+0xd0/0x1c0
+	do_huge_pmd_anonymous_page+0x138/0x260
+	do_page_fault+0x1fd/0x4c0
+	page_fault+0x25/0x30
+3) mpi-test-clive -np2 will show collapse_huge_page
+	 __mmu_notifier_invalidate_range_start+0x53/0x80
+	collapse_huge_page+0x275/0x510
+	khugepaged_scan_pmd+0x2bc/0x2c0
+	khugepaged_scan_mm_slot+0x167/0x270
+	khugepaged_loop+0xf7/0x3c0
+	khugepaged+0x4a/0xb0
+	__mmu_notifier_invalidate_range_start+0x53/0x80
+	collapse_huge_page+0x275/0x510
+	khugepaged_scan_pmd+0x2bc/0x2c0
+	khugepaged_scan_mm_slot+0x167/0x270
+	khugepaged_loop+0xf7/0x3c0
+	khugepaged+0x4a/0xb0
+
+4) pingpong.f from syslib/libtests
+   Not the same since it only allows two ranks. Removing that
+   code doesn't run the same. Put in df_mmu code, nothing new.
+
+5) Need to invoke swap/kswapd
+
+
+6) mpirun -np 8 dplace -s1 ./reduce.shmem 0 8192 16 8 
+  Error run, lots of thread_group_destroy
+
+  mpirun -np 4 dplace -s1 ./reduce.shmem 4
+  Runs clean, huge_page
+
+ mpirun -np 12 dplace -s1 ./reduce.shmem 20
+ with memhog taking up 90% of memory, and swap on.
+ -split_huge_page
